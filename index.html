@@ -119,15 +119,26 @@
   .category-bar-fill{ height:100%; border-radius:999px; transition:width .4s ease; }
   .category-bar-score{ width:40px; text-align:right; font-size:0.85rem; font-weight:700; flex-shrink:0; }
 
-  .category-section{ margin-top:8px; }
-  .category-section summary{
-    cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between;
-    padding:14px 0; font-weight:700; font-size:0.95rem;
+  /* Each audit category is its own distinct card, not one shared list */
+  .category-card{ border-radius:18px; box-shadow:var(--shadow); overflow:hidden; border:1px solid var(--border); background:var(--panel); border-top:4px solid var(--border-accent, var(--muted)); }
+  .category-card summary{
+    cursor:pointer; list-style:none; display:flex; align-items:center; gap:14px;
+    padding:22px 28px; background:var(--panel2);
   }
-  .category-section summary::-webkit-details-marker{ display:none; }
-  .category-section summary .chev{ transition:transform .2s; color:var(--muted); }
-  .category-section[open] summary .chev{ transform:rotate(90deg); }
-  .check-row{ display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--border); }
+  .category-card summary::-webkit-details-marker{ display:none; }
+  .category-card .cat-icon{ font-size:1.5rem; flex-shrink:0; }
+  .category-card .cat-title{ flex:1; min-width:0; }
+  .category-card .cat-title .name{ font-weight:800; font-size:1.05rem; display:flex; align-items:center; gap:4px; }
+  .category-card .cat-title .sub{ color:var(--muted); font-size:0.8rem; margin-top:2px; }
+  .category-card .cat-score{ font-size:1.4rem; font-weight:800; flex-shrink:0; }
+  .category-card .chev{ transition:transform .2s; color:var(--muted); flex-shrink:0; font-size:1.2rem; }
+  .category-card[open] .chev{ transform:rotate(90deg); }
+  .category-body{ padding:8px 28px 20px; }
+  .subgroup{ margin-top:18px; }
+  .subgroup:first-child{ margin-top:4px; }
+  .subgroup-title{ font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:6px; }
+  .check-row{ display:flex; gap:12px; padding:11px 0; border-top:1px solid var(--border); }
+  .subgroup .check-row:first-of-type{ border-top:none; }
   .check-icon{ width:20px; height:20px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:800; margin-top:1px; }
   .check-icon.pass{ background:rgba(62,207,142,0.15); color:var(--good); }
   .check-icon.warn{ background:rgba(227,185,93,0.15); color:var(--warn); }
@@ -140,6 +151,21 @@
     text-transform:uppercase; color:#fff; background:linear-gradient(135deg, var(--accent2), var(--accent));
     padding:4px 10px; border-radius:999px; margin-left:8px;
   }
+
+  /* Staged loading sequence */
+  .loading-steps{ margin-top:18px; display:flex; flex-direction:column; gap:10px; }
+  .loading-step{ display:flex; align-items:center; gap:10px; font-size:0.88rem; color:var(--muted); opacity:0.4; transition:opacity .25s; }
+  .loading-step.active{ opacity:1; color:var(--text); }
+  .loading-step.done{ opacity:0.75; }
+  .loading-step .spinner{
+    width:16px; height:16px; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent);
+    animation:spin .7s linear infinite; flex-shrink:0; visibility:hidden;
+  }
+  .loading-step.active .spinner{ visibility:visible; }
+  .loading-step .checkmark{ width:16px; height:16px; flex-shrink:0; color:var(--good); font-weight:800; display:none; text-align:center; }
+  .loading-step.done .checkmark{ display:block; }
+  .loading-step.done .spinner{ display:none; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
 
   .content-section{ margin-top:6px; }
   .content-section h2{ font-size:1.25rem; margin:0 0 14px; }
@@ -171,6 +197,13 @@
       <label for="localToggle">This is a local business (include Local SEO checks — coming soon)</label>
     </div>
     <div class="status-msg" id="statusMsg"></div>
+    <div class="loading-steps" id="loadingSteps" style="display:none;">
+      <div class="loading-step" data-step="fetch"><div class="spinner"></div><div class="checkmark">✓</div><span>Fetching the page…</span></div>
+      <div class="loading-step" data-step="onpage"><div class="spinner"></div><div class="checkmark">✓</div><span>Checking titles, meta tags &amp; technical setup…</span></div>
+      <div class="loading-step" data-step="structured"><div class="spinner"></div><div class="checkmark">✓</div><span>Reading structured data &amp; social tags…</span></div>
+      <div class="loading-step" data-step="ai"><div class="spinner"></div><div class="checkmark">✓</div><span>Checking AI crawler access &amp; readiness…</span></div>
+      <div class="loading-step" data-step="score"><div class="spinner"></div><div class="checkmark">✓</div><span>Calculating your score…</span></div>
+    </div>
   </div>
 
   <div id="results">
@@ -203,7 +236,7 @@
       <div class="category-bars" id="categoryBars"></div>
     </div>
 
-    <div class="card" id="categoryDetails"></div>
+    <div id="categoryDetails" style="display:grid; gap:22px;"></div>
   </div>
 
   <div class="card content-section">
@@ -237,8 +270,31 @@
   const quickWinsList = document.getElementById('quickWinsList');
   const categoryBars = document.getElementById('categoryBars');
   const categoryDetails = document.getElementById('categoryDetails');
+  const loadingSteps = document.getElementById('loadingSteps');
 
   const CIRCUMFERENCE = 2 * Math.PI * 60; // ~377
+
+  const CATEGORY_META = {
+    onPage: { icon: '🔍', accent: 'var(--accent)', sub: 'Titles, meta tags, headings, indexability, technical setup' },
+    structuredData: { icon: '🏷️', accent: '#8f6dff', sub: 'Schema markup, Open Graph & Twitter Card tags' },
+    aiReadiness: { icon: '🤖', accent: '#3ecf8e', sub: 'Signals correlated with AI answer-engine citability' },
+  };
+
+  // Sub-groups the larger On-Page category into readable clusters instead of one flat list.
+  const SUBGROUPS = {
+    'Content & Meta': ['title', 'meta-desc', 'h1', 'heading-hierarchy', 'alt-text', 'word-count', 'keyword-targeting'],
+    'Technical & Indexability': ['noindex', 'https', 'viewport', 'lang', 'favicon', 'robots-txt', 'sitemap', 'canonical'],
+    'Links & Analytics': ['links', 'url-structure', 'analytics'],
+  };
+  function subgroupFor(checkId){
+    for (const [name, ids] of Object.entries(SUBGROUPS)) {
+      if (ids.includes(checkId)) return name;
+    }
+    return null;
+  }
+
+  const LOADING_STEP_ORDER = ['fetch', 'onpage', 'structured', 'ai', 'score'];
+  const STEP_DELAY_MS = 550; // paced reveal so real work is visibly shown, not hidden behind an instant flash
 
   function scoreColor(score){
     if (score >= 80) return 'var(--good)';
@@ -254,6 +310,29 @@
     statusMsg.className = 'status-msg';
   }
 
+  function resetLoadingSteps(){
+    loadingSteps.querySelectorAll('.loading-step').forEach(el => el.className = 'loading-step');
+  }
+  function runLoadingAnimation(){
+    // Purely visual pacing of the real steps the backend actually performs
+    // (fetch → parse on-page → parse structured data → check AI signals → score).
+    return new Promise(resolve => {
+      let i = 0;
+      function next(){
+        if (i > 0) {
+          const prev = loadingSteps.querySelector(`[data-step="${LOADING_STEP_ORDER[i-1]}"]`);
+          if (prev) prev.className = 'loading-step done';
+        }
+        if (i >= LOADING_STEP_ORDER.length) { resolve(); return; }
+        const el = loadingSteps.querySelector(`[data-step="${LOADING_STEP_ORDER[i]}"]`);
+        if (el) el.className = 'loading-step active';
+        i++;
+        setTimeout(next, STEP_DELAY_MS);
+      }
+      next();
+    });
+  }
+
   async function runAudit(){
     let url = urlInput.value.trim();
     if (!url) { setStatus('Enter a URL to audit.', true); return; }
@@ -261,22 +340,29 @@
 
     auditBtn.disabled = true;
     auditBtn.textContent = 'Auditing…';
-    setStatus('Fetching and analyzing the page — this takes a few seconds…', false);
+    clearStatus();
+    resetLoadingSteps();
+    loadingSteps.style.display = 'flex';
     results.classList.remove('active');
 
     try {
-      const res = await fetch('/api/audit?url=' + encodeURIComponent(url) + (localToggle.checked ? '&local=1' : ''));
-      const data = await res.json();
+      const fetchPromise = fetch('/api/audit?url=' + encodeURIComponent(url) + (localToggle.checked ? '&local=1' : ''))
+        .then(res => res.json());
+      // Wait for both the real audit AND the minimum staged-reveal animation,
+      // so the report never appears before its steps have visibly run.
+      const [data] = await Promise.all([fetchPromise, runLoadingAnimation()]);
+
+      loadingSteps.style.display = 'none';
 
       if (data.error) {
         setStatus(data.error, true);
         return;
       }
 
-      clearStatus();
       renderResults(data);
     } catch (err) {
       console.error(err);
+      loadingSteps.style.display = 'none';
       setStatus('Something went wrong running the audit. Please try again.', true);
     } finally {
       auditBtn.disabled = false;
@@ -327,21 +413,52 @@
       </div>
     `).join('');
 
-    // Category details (expandable)
-    categoryDetails.innerHTML = data.categories.map((cat, i) => `
-      <details class="category-section" ${i === 0 ? 'open' : ''}>
-        <summary>
-          <span>${escapeHtml(cat.label)}${cat.key === 'aiReadiness' ? ' <span class="ai-badge">AI Readiness</span>' : ''}</span>
-          <span class="chev">&rsaquo;</span>
-        </summary>
-        ${cat.checks.map(c => `
+    // Category details — each category is its own visually distinct card, with the
+    // larger On-Page category further split into readable sub-groups instead of one flat list.
+    categoryDetails.innerHTML = data.categories.map((cat, i) => {
+      const meta = CATEGORY_META[cat.key] || { icon: '📋', accent: 'var(--muted)', sub: '' };
+      const groups = {};
+      const ungrouped = [];
+      cat.checks.forEach(c => {
+        const g = subgroupFor(c.id);
+        if (g) { (groups[g] = groups[g] || []).push(c); }
+        else ungrouped.push(c);
+      });
+      const groupNames = Object.keys(groups);
+
+      function renderCheckRow(c){
+        return `
           <div class="check-row">
             <div class="check-icon ${c.status}">${c.status === 'pass' ? '✓' : c.status === 'warn' ? '!' : '✕'}</div>
             <div class="check-text"><strong>${escapeHtml(c.label)}</strong><span>${escapeHtml(c.detail)}</span></div>
           </div>
-        `).join('')}
-      </details>
-    `).join('');
+        `;
+      }
+
+      const bodyHtml = groupNames.length
+        ? groupNames.map(g => `
+            <div class="subgroup">
+              <div class="subgroup-title">${escapeHtml(g)}</div>
+              ${groups[g].map(renderCheckRow).join('')}
+            </div>
+          `).join('') + (ungrouped.length ? `<div class="subgroup"><div class="subgroup-title">Other</div>${ungrouped.map(renderCheckRow).join('')}</div>` : '')
+        : cat.checks.map(renderCheckRow).join('');
+
+      return `
+        <details class="category-card" style="--border-accent:${meta.accent};" ${i === 0 ? 'open' : ''}>
+          <summary>
+            <span class="cat-icon">${meta.icon}</span>
+            <span class="cat-title">
+              <span class="name">${escapeHtml(cat.label)}${cat.key === 'aiReadiness' ? ' <span class="ai-badge">AI</span>' : ''}</span>
+              <span class="sub">${escapeHtml(meta.sub)}</span>
+            </span>
+            <span class="cat-score" style="color:${scoreColor(cat.score)};">${cat.score}</span>
+            <span class="chev">&rsaquo;</span>
+          </summary>
+          <div class="category-body">${bodyHtml}</div>
+        </details>
+      `;
+    }).join('');
 
     results.classList.add('active');
   }
