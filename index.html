@@ -360,6 +360,7 @@
       }
 
       renderResults(data);
+      if (typeof gtag === 'function') gtag('event', 'tool_action', { tool_name: 'audit-my-web', action: 'run_audit', value: data.overallScore });
     } catch (err) {
       console.error(err);
       loadingSteps.style.display = 'none';
