@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — Audit My Web</title>
+<meta name="description" content="About Audit My Web, a free website audit tool covering on-page SEO, structured data, and AI Readiness.">
+<link rel="canonical" href="https://auditmyweb.site/about.html">
+<style>
+  :root{ --bg:#141517; --panel:#1c1d20; --border:#302f33; --text:#eeeef0; --muted:#9b9ba1; --accent:#6d8bff; }
+  @media (prefers-color-scheme: light){ :root{ --bg:#eeeef0; --panel:#ffffff; --border:#dcdce0; --text:#1c1c1f; --muted:#6b6b72; --accent:#4f6bff; } }
+  body{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  .wrap{ max-width:720px; margin:0 auto; padding:48px 20px 80px; line-height:1.6; }
+  a{ color:var(--accent); }
+  h1{ font-size:1.7rem; }
+  h2{ font-size:1.15rem; margin-top:2em; }
+  .back{ display:inline-block; margin-bottom:24px; font-size:0.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">&larr; Back to Audit My Web</a>
+  <h1>About Audit My Web</h1>
+
+  <p>Audit My Web is a free tool that checks a website's on-page SEO, structured data, and — distinctively — its <strong>AI Readiness</strong>: the on-page signals that correlate with being cited by AI answer engines like ChatGPT, Perplexity, and Google AI Overviews.</p>
+
+  <h2>How it's different</h2>
+  <p>Unlike our companion site <a href="https://shrinkmytools.com/">Shrink My Tools</a>, which processes everything entirely in your browser, this tool necessarily fetches the page you enter from our server — browsers don't allow a webpage to directly read another website's content across domains. We fetch only what a normal visitor (or a search engine crawler) would see: the public HTML, robots.txt, and sitemap.xml. Nothing is stored after your report is generated.</p>
+
+  <h2>What's checked</h2>
+  <ul>
+    <li><strong>On-Page &amp; Technical</strong> — titles, meta tags, headings, indexability, HTTPS, robots.txt, sitemap.xml, and more</li>
+    <li><strong>Structured Data &amp; Social</strong> — JSON-LD schema, Open Graph and Twitter Card tags</li>
+    <li><strong>AI Readiness</strong> — FAQ schema, AI crawler access (GPTBot, Google-Extended, PerplexityBot, CCBot), llms.txt, and E-E-A-T signals</li>
+  </ul>
+  <p>We're upfront that "AI Readiness" measures controllable, correlated signals — not a guarantee of appearing in any specific AI-generated answer, since no search engine or AI provider publishes an API for that.</p>
+
+  <p>See our <a href="/privacy.html">Privacy Policy</a> and <a href="/terms.html">Terms of Use</a> for more details.</p>
+</div>
+</body>
+</html>

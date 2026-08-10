@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit My Web — Free SEO & AI Readiness Audit</title>
+<meta name="description" content="Free website audit: on-page SEO, structured data, and AI Readiness (how visible you are to ChatGPT, Perplexity, and Google AI Overviews). No signup.">
+<link rel="canonical" href="https://auditmyweb.site/">
+<meta property="og:title" content="Audit My Web — Free SEO & AI Readiness Audit">
+<meta property="og:description" content="Free website audit: on-page SEO, structured data, and AI Readiness. No signup.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://auditmyweb.site/">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Audit My Web",
+  "url": "https://auditmyweb.site/",
+  "description": "Free website audit covering on-page SEO, structured data, and AI Readiness (visibility to ChatGPT, Perplexity, and Google AI Overviews).",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Any (runs in web browser)",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<style>
+  :root{
+    --bg:#141517; --bg2:#1a1b1e; --panel:#1c1d20; --panel2:#232427; --border:#302f33;
+    --text:#eeeef0; --muted:#9b9ba1; --accent:#6d8bff; --accent2:#8f6dff;
+    --good:#3ecf8e; --warn:#e3b95d; --bad:#e35d5d;
+    --shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#eeeef0; --bg2:#e9e9eb; --panel:#ffffff; --panel2:#f5f5f6; --border:#dcdce0;
+      --text:#1c1c1f; --muted:#6b6b72; --accent:#4f6bff; --accent2:#7b4fff;
+      --good:#1f9d6d; --warn:#b8860b; --bad:#c33;
+      --shadow: 0 10px 30px -12px rgba(30,30,35,0.15);
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{ height:100%; }
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(127,127,140,0.16) 1px, transparent 0),
+      radial-gradient(1100px 600px at 50% -12%, rgba(127,127,140,0.10), transparent 60%);
+    background-size: 26px 26px, 100% 100%;
+    color:var(--text); min-height:100vh; -webkit-font-smoothing:antialiased;
+  }
+  .back{ display:block; max-width:1000px; margin:0 auto; padding:24px 20px 0; font-size:0.85rem; color:var(--muted); text-decoration:none; }
+  .back:hover{ color:var(--text); }
+  header{ text-align:center; padding:44px 20px 24px; }
+  header h1{
+    margin:0 0 12px; font-size:clamp(1.9rem,4vw,2.6rem); font-weight:800; letter-spacing:-0.02em;
+    background:linear-gradient(135deg, var(--text) 20%, var(--accent) 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  header p{ margin:0 auto; color:var(--muted); max-width:560px; line-height:1.5; }
+  .layout{ max-width:1000px; margin:0 auto; padding:20px; display:grid; grid-template-columns:1fr; gap:22px; }
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:var(--shadow); }
+  .audit-form{ display:flex; gap:10px; flex-wrap:wrap; }
+  .audit-form input[type=text]{
+    flex:1; min-width:220px; padding:13px 16px; border-radius:10px; border:1px solid var(--border);
+    background:var(--bg2); color:var(--text); font-size:1rem;
+  }
+  .audit-form input[type=text]:focus{ outline:none; border-color:var(--accent); }
+  .btn{
+    background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; border:none;
+    padding:13px 24px; border-radius:10px; font-size:0.95rem; cursor:pointer; font-weight:700;
+    box-shadow:0 6px 16px -6px rgba(109,139,255,0.55); white-space:nowrap;
+  }
+  .btn:hover{ filter:brightness(1.08); }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+  .toggle-row{ display:flex; align-items:center; gap:8px; margin-top:14px; font-size:0.88rem; color:var(--muted); }
+  .status-msg{ margin-top:16px; font-size:0.9rem; color:var(--muted); display:none; }
+  .status-msg.active{ display:block; }
+  .status-msg.error{ color:var(--bad); }
+
+  #results{ display:none; }
+  #results.active{ display:block; }
+
+  .score-hero{ display:flex; align-items:center; gap:28px; flex-wrap:wrap; }
+  .gauge-wrap{ position:relative; width:140px; height:140px; flex-shrink:0; }
+  .gauge-wrap svg{ transform:rotate(-90deg); }
+  .gauge-label{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .gauge-label .num{ font-size:2.1rem; font-weight:800; }
+  .gauge-label .of{ font-size:0.7rem; color:var(--muted); }
+  .score-hero-text{ flex:1; min-width:200px; }
+  .score-hero-text h2{ margin:0 0 6px; font-size:1.15rem; }
+  .score-hero-text p{ margin:0; color:var(--muted); font-size:0.9rem; }
+
+  .quick-wins{ margin-top:20px; }
+  .quick-wins h3{ font-size:0.95rem; margin:0 0 12px; }
+  .quick-win-item{
+    display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--border);
+    font-size:0.88rem;
+  }
+  .quick-win-item:first-of-type{ border-top:none; }
+  .quick-win-item .dot{ width:8px; height:8px; border-radius:50%; background:var(--bad); margin-top:6px; flex-shrink:0; }
+  .quick-win-item strong{ display:block; color:var(--text); }
+  .quick-win-item span{ color:var(--muted); }
+
+  .category-bars{ display:flex; flex-direction:column; gap:14px; margin-top:8px; }
+  .category-bar-row{ display:flex; align-items:center; gap:14px; }
+  .category-bar-row .cat-label{ width:170px; flex-shrink:0; font-size:0.85rem; font-weight:600; }
+  .category-bar-track{ flex:1; height:10px; border-radius:999px; background:var(--panel2); overflow:hidden; }
+  .category-bar-fill{ height:100%; border-radius:999px; transition:width .4s ease; }
+  .category-bar-score{ width:40px; text-align:right; font-size:0.85rem; font-weight:700; flex-shrink:0; }
+
+  .category-section{ margin-top:8px; }
+  .category-section summary{
+    cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between;
+    padding:14px 0; font-weight:700; font-size:0.95rem;
+  }
+  .category-section summary::-webkit-details-marker{ display:none; }
+  .category-section summary .chev{ transition:transform .2s; color:var(--muted); }
+  .category-section[open] summary .chev{ transform:rotate(90deg); }
+  .check-row{ display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--border); }
+  .check-icon{ width:20px; height:20px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:800; margin-top:1px; }
+  .check-icon.pass{ background:rgba(62,207,142,0.15); color:var(--good); }
+  .check-icon.warn{ background:rgba(227,185,93,0.15); color:var(--warn); }
+  .check-icon.fail{ background:rgba(227,93,93,0.15); color:var(--bad); }
+  .check-text strong{ display:block; font-size:0.88rem; margin-bottom:2px; }
+  .check-text span{ color:var(--muted); font-size:0.83rem; line-height:1.5; }
+
+  .ai-badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:0.7rem; font-weight:800; letter-spacing:.03em;
+    text-transform:uppercase; color:#fff; background:linear-gradient(135deg, var(--accent2), var(--accent));
+    padding:4px 10px; border-radius:999px; margin-left:8px;
+  }
+
+  .content-section{ margin-top:6px; }
+  .content-section h2{ font-size:1.25rem; margin:0 0 14px; }
+  .content-section h3{ font-size:1.02rem; margin:24px 0 10px; }
+  .content-section p, .content-section li{ color:var(--muted); font-size:0.93rem; line-height:1.7; }
+  .content-section ul{ margin:0 0 14px; padding-left:22px; }
+  .content-section strong{ color:var(--text); }
+  footer{ text-align:center; color:var(--muted); font-size:0.8rem; padding:36px 20px 56px; }
+  footer a{ color:inherit; }
+</style>
+</head>
+<body>
+
+<a class="back" href="https://shrinkmytools.com/">&larr; Shrink My Tools</a>
+
+<header>
+  <h1>Audit My Web</h1>
+  <p>Free website audit covering on-page SEO, structured data, and AI Readiness — how visible your site is to ChatGPT, Perplexity, and Google AI Overviews.</p>
+</header>
+
+<div class="layout">
+  <div class="card">
+    <div class="audit-form">
+      <input type="text" id="urlInput" placeholder="https://example.com" value="">
+      <button class="btn" id="auditBtn">Run Audit</button>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="localToggle">
+      <label for="localToggle">This is a local business (include Local SEO checks — coming soon)</label>
+    </div>
+    <div class="status-msg" id="statusMsg"></div>
+  </div>
+
+  <div id="results">
+    <div class="card">
+      <div class="score-hero">
+        <div class="gauge-wrap">
+          <svg width="140" height="140" viewBox="0 0 140 140">
+            <circle cx="70" cy="70" r="60" fill="none" stroke="var(--panel2)" stroke-width="12"/>
+            <circle id="gaugeCircle" cx="70" cy="70" r="60" fill="none" stroke="var(--good)" stroke-width="12"
+              stroke-linecap="round" stroke-dasharray="377" stroke-dashoffset="377"/>
+          </svg>
+          <div class="gauge-label">
+            <div class="num" id="overallScoreNum">0</div>
+            <div class="of">/ 100</div>
+          </div>
+        </div>
+        <div class="score-hero-text">
+          <h2 id="resultUrl"></h2>
+          <p id="resultSummary"></p>
+        </div>
+      </div>
+
+      <div class="quick-wins" id="quickWinsWrap" style="display:none;">
+        <h3>Top Quick Wins</h3>
+        <div id="quickWinsList"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="category-bars" id="categoryBars"></div>
+    </div>
+
+    <div class="card" id="categoryDetails"></div>
+  </div>
+
+  <div class="card content-section">
+    <h2>What's Checked</h2>
+    <ul>
+      <li><strong>On-Page &amp; Technical</strong> — title/meta tags, headings, canonical tags, indexability, alt text, HTTPS, mobile viewport, robots.txt, sitemap.xml, URL structure, analytics setup, and more.</li>
+      <li><strong>Structured Data &amp; Social</strong> — JSON-LD schema, Open Graph tags, Twitter Card tags.</li>
+      <li><strong>AI Readiness <span class="ai-badge">AI</span></strong> — FAQ/Q&amp;A schema, whether AI crawlers (GPTBot, Google-Extended, PerplexityBot, CCBot) are allowed to access the site, llms.txt presence, and E-E-A-T signals. This measures <em>readiness</em> — the on-page signals that correlate with AI citability — not a guarantee of appearing in any specific AI answer, since no public API exposes actual AI Overview citations.</li>
+    </ul>
+    <p>Everything is fetched and analyzed server-side at the moment you run the audit — nothing is stored, and no account is required.</p>
+  </div>
+</div>
+
+<footer>
+  Free website audit — no signup.<br>
+  <a href="/about.html">About</a> · <a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms</a> · <a href="https://shrinkmytools.com/">More free tools</a>
+</footer>
+
+<script>
+(function(){
+  const urlInput = document.getElementById('urlInput');
+  const auditBtn = document.getElementById('auditBtn');
+  const localToggle = document.getElementById('localToggle');
+  const statusMsg = document.getElementById('statusMsg');
+  const results = document.getElementById('results');
+  const gaugeCircle = document.getElementById('gaugeCircle');
+  const overallScoreNum = document.getElementById('overallScoreNum');
+  const resultUrl = document.getElementById('resultUrl');
+  const resultSummary = document.getElementById('resultSummary');
+  const quickWinsWrap = document.getElementById('quickWinsWrap');
+  const quickWinsList = document.getElementById('quickWinsList');
+  const categoryBars = document.getElementById('categoryBars');
+  const categoryDetails = document.getElementById('categoryDetails');
+
+  const CIRCUMFERENCE = 2 * Math.PI * 60; // ~377
+
+  function scoreColor(score){
+    if (score >= 80) return 'var(--good)';
+    if (score >= 50) return 'var(--warn)';
+    return 'var(--bad)';
+  }
+
+  function setStatus(msg, isError){
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg active' + (isError ? ' error' : '');
+  }
+  function clearStatus(){
+    statusMsg.className = 'status-msg';
+  }
+
+  async function runAudit(){
+    let url = urlInput.value.trim();
+    if (!url) { setStatus('Enter a URL to audit.', true); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    auditBtn.disabled = true;
+    auditBtn.textContent = 'Auditing…';
+    setStatus('Fetching and analyzing the page — this takes a few seconds…', false);
+    results.classList.remove('active');
+
+    try {
+      const res = await fetch('/api/audit?url=' + encodeURIComponent(url) + (localToggle.checked ? '&local=1' : ''));
+      const data = await res.json();
+
+      if (data.error) {
+        setStatus(data.error, true);
+        return;
+      }
+
+      clearStatus();
+      renderResults(data);
+    } catch (err) {
+      console.error(err);
+      setStatus('Something went wrong running the audit. Please try again.', true);
+    } finally {
+      auditBtn.disabled = false;
+      auditBtn.textContent = 'Run Audit';
+    }
+  }
+
+  function renderResults(data){
+    resultUrl.textContent = data.url;
+    const score = data.overallScore;
+    overallScoreNum.textContent = score;
+    const color = scoreColor(score);
+    gaugeCircle.style.stroke = color;
+    const offset = CIRCUMFERENCE - (CIRCUMFERENCE * score / 100);
+    // Animate from full offset
+    gaugeCircle.style.strokeDashoffset = CIRCUMFERENCE;
+    requestAnimationFrame(() => {
+      gaugeCircle.style.transition = 'stroke-dashoffset 0.8s ease';
+      gaugeCircle.style.strokeDashoffset = offset;
+    });
+    overallScoreNum.style.color = color;
+
+    resultSummary.textContent = score >= 80
+      ? 'Strong overall — most fundamentals are in place.'
+      : score >= 50
+        ? 'Decent foundation, but a few meaningful gaps to fix.'
+        : 'Several important issues found — see quick wins below.';
+
+    // Quick wins
+    if (data.quickWins && data.quickWins.length) {
+      quickWinsWrap.style.display = 'block';
+      quickWinsList.innerHTML = data.quickWins.map(w => `
+        <div class="quick-win-item">
+          <div class="dot"></div>
+          <div><strong>${escapeHtml(w.label)}</strong><span>${escapeHtml(w.detail)}</span></div>
+        </div>
+      `).join('');
+    } else {
+      quickWinsWrap.style.display = 'none';
+    }
+
+    // Category bars
+    categoryBars.innerHTML = data.categories.map(cat => `
+      <div class="category-bar-row">
+        <div class="cat-label">${escapeHtml(cat.label)}${cat.key === 'aiReadiness' ? ' <span class="ai-badge">AI</span>' : ''}</div>
+        <div class="category-bar-track"><div class="category-bar-fill" style="width:${cat.score}%; background:${scoreColor(cat.score)};"></div></div>
+        <div class="category-bar-score" style="color:${scoreColor(cat.score)};">${cat.score}</div>
+      </div>
+    `).join('');
+
+    // Category details (expandable)
+    categoryDetails.innerHTML = data.categories.map((cat, i) => `
+      <details class="category-section" ${i === 0 ? 'open' : ''}>
+        <summary>
+          <span>${escapeHtml(cat.label)}${cat.key === 'aiReadiness' ? ' <span class="ai-badge">AI Readiness</span>' : ''}</span>
+          <span class="chev">&rsaquo;</span>
+        </summary>
+        ${cat.checks.map(c => `
+          <div class="check-row">
+            <div class="check-icon ${c.status}">${c.status === 'pass' ? '✓' : c.status === 'warn' ? '!' : '✕'}</div>
+            <div class="check-text"><strong>${escapeHtml(c.label)}</strong><span>${escapeHtml(c.detail)}</span></div>
+          </div>
+        `).join('')}
+      </details>
+    `).join('');
+
+    results.classList.add('active');
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  auditBtn.addEventListener('click', runAudit);
+  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') runAudit(); });
+})();
+</script>
+
+</body>
+</html>

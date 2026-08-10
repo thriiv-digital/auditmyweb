@@ -1,0 +1,19 @@
+# Audit My Web
+
+> Audit My Web is a free website audit tool that checks on-page SEO, structured data, and AI Readiness — the on-page signals correlated with being cited by AI answer engines like ChatGPT, Perplexity, and Google AI Overviews. Enter a URL and get an instant scored report, no signup required.
+
+## Tool
+
+- [Audit My Web](https://auditmyweb.site/): Free SEO and AI Readiness audit. Checks title/meta tags, headings, indexability, HTTPS, structured data (JSON-LD, Open Graph, Twitter Cards), FAQ schema, AI crawler access (GPTBot, Google-Extended, PerplexityBot, CCBot), llms.txt presence, and E-E-A-T signals.
+
+## Related
+
+- [Shrink My Tools](https://shrinkmytools.com/): Companion site with 18 free, browser-based tools — image resizing, PDF merge/split/compress, QR codes, JSON formatting, password generation, and more.
+- [Shrink My Pics](https://shrinkmypics.com/): Free image resizer and converter.
+
+## Site Info
+
+- [About](https://auditmyweb.site/about.html)
+- [Privacy Policy](https://auditmyweb.site/privacy.html): Explains that audited URLs are fetched server-side (identified as "AuditMyWebBot") and not stored.
+- [Terms of Use](https://auditmyweb.site/terms.html)
+- [Sitemap](https://auditmyweb.site/sitemap.xml)

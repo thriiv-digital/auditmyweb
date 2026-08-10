@@ -1,0 +1,7 @@
+name = "auditmyweb"
+main = "worker.js"
+compatibility_date = "2026-08-08"
+
+[assets]
+directory = "./"
+binding = "ASSETS"
