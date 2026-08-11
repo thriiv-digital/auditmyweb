@@ -61,6 +61,25 @@ async function handleAudit(reqUrl, headers, env) {
   const finalUrl = new URL(mainResponse.url);
   const xRobotsTag = mainResponse.headers.get('x-robots-tag') || '';
 
+  // Some sites serve different (often bot-challenge or near-empty) content to a raw
+  // server-side fetch than they do to a real browser — and any JS-rendered site needs
+  // a real browser to produce meaningful HTML at all. When Browser Rendering is
+  // configured, prefer its rendered output for parsing; the raw fetch above is still
+  // used for status/redirect/header info (Browser Rendering's REST API doesn't expose
+  // the original HTTP response headers). Falls back to the raw fetch body if Browser
+  // Rendering isn't configured or the call fails, so the tool still works either way.
+  let htmlSource = mainResponse;
+  if (env && env.CF_BROWSER_RENDERING_TOKEN && env.CF_ACCOUNT_ID) {
+    try {
+      const renderedHtml = await fetchRenderedHtml(finalUrl.toString(), env);
+      if (renderedHtml) {
+        htmlSource = new Response(renderedHtml, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+      }
+    } catch (err) {
+      console.warn('Browser Rendering content fetch failed, falling back to raw fetch:', err && err.message);
+    }
+  }
+
   let currentJsonLd = '';
   const state = {
     title: '', metaDescription: '', metaRobots: '',
@@ -133,7 +152,7 @@ async function handleAudit(reqUrl, headers, env) {
     .on('style', { text(t) { t.remove(); } })
     .on('body', { text(t) { state.bodyText += t.text; } });
 
-  await rewriter.transform(mainResponse).text();
+  await rewriter.transform(htmlSource).text();
 
   const jsonLdTexts = state.jsonLdBlocks.map(s => s.trim()).filter(Boolean);
   const jsonLdParsed = [];
@@ -223,6 +242,41 @@ const TRUST_SIGNAL_PROMPT = `You are analyzing a screenshot of the above-the-fol
 - cta_visible: is there a clear, prominent call-to-action button or link (e.g. "Contact Us", "Book Now", "Get a Quote")?
 - testimonials_visible: is a customer testimonial or quote visible?
 Each *_detail must be one short factual sentence describing exactly what you see (or don't see) for that signal. Be conservative — only mark something visible if you can clearly see it in the image.`;
+
+async function fetchRenderedHtml(url, env) {
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/content`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.CF_BROWSER_RENDERING_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        gotoOptions: { waitUntil: 'networkidle0', timeout: 15000 },
+      }),
+      signal: AbortSignal.timeout(20000),
+    }
+  );
+  if (!res.ok) {
+    console.warn('Browser Rendering /content failed:', res.status, await res.text().catch(() => ''));
+    return null;
+  }
+  const bodyText = await res.text();
+  // Response shape isn't fully documented — handle both a raw-HTML body and
+  // Cloudflare's standard {success, result} JSON wrapper defensively.
+  const trimmed = bodyText.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (typeof data.result === 'string') return data.result;
+      if (data.result && typeof data.result.content === 'string') return data.result.content;
+      // Doesn't look like the wrapper we expected — fall through to treating it as HTML.
+    } catch { /* not actually JSON, treat as raw HTML below */ }
+  }
+  return bodyText;
+}
 
 async function captureAndAnalyzeTrustSignals(url, env) {
   if (!env || !env.CF_BROWSER_RENDERING_TOKEN || !env.ANTHROPIC_API_KEY || !env.CF_ACCOUNT_ID) {
