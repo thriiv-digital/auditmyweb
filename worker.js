@@ -665,6 +665,16 @@ function scoreCategories(checks) {
   }
   const labels = { onPage: 'On-Page & Technical', structuredData: 'Structured Data & Social', aiReadiness: 'AI Readiness', trustSignals: 'Above-the-Fold & Trust Signals' };
   return Object.entries(byCategory).map(([key, items]) => {
+    if (key === 'trustSignals') {
+      // Trust-signal "warn" means the signal simply wasn't found above the fold —
+      // unlike a borderline title length elsewhere, there's no partial-credit middle
+      // state here, so warn earns nothing and each signal is weighted by its impact
+      // (a missing CTA should hurt more than a missing testimonial).
+      const totalImpact = items.reduce((sum, c) => sum + (c.impact || 1), 0);
+      const points = items.reduce((sum, c) => sum + (c.status === 'pass' ? (c.impact || 1) : 0), 0);
+      const score = totalImpact > 0 ? Math.round((points / totalImpact) * 100) : 100;
+      return { key, label: labels[key] || key, score, checks: items };
+    }
     const points = items.reduce((sum, c) => sum + (c.status === 'pass' ? 1 : c.status === 'warn' ? 0.5 : 0), 0);
     const score = Math.round((points / items.length) * 100);
     return { key, label: labels[key] || key, score, checks: items };
