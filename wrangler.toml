@@ -10,6 +10,9 @@ binding = "ASSETS"
 [browser]
 binding = "MYBROWSER"
 
+[vars]
+FORMSPREE_ENDPOINT = "https://formspree.io/f/xljrbvvn"
+
 # Secrets (set via `wrangler secret put <NAME>` or the Cloudflare dashboard —
 # never committed here):
 #   ANTHROPIC_API_KEY — Anthropic API key for the vision analysis call

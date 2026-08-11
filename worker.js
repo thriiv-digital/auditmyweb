@@ -13,7 +13,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/audit') {
       if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() });
-      return handleAudit(url, corsHeaders(), env);
+      return handleAudit(url, corsHeaders(), env, ctx, request);
     }
     return env.ASSETS.fetch(request);
   }
@@ -27,7 +27,7 @@ function corsHeaders() {
   };
 }
 
-async function handleAudit(reqUrl, headers, env) {
+async function handleAudit(reqUrl, headers, env, ctx, request) {
   const target = reqUrl.searchParams.get('url');
 
   if (!target) {
@@ -40,6 +40,15 @@ async function handleAudit(reqUrl, headers, env) {
     if (!/^https?:$/.test(targetUrl.protocol)) throw new Error('bad protocol');
   } catch {
     return json({ error: 'Please enter a valid URL, e.g. https://example.com' }, 400, headers);
+  }
+
+  // Log every submitted URL (best-effort, never blocks or fails the audit itself).
+  if (ctx && env && env.FORMSPREE_ENDPOINT) {
+    const clientIp = request ? (request.headers.get('cf-connecting-ip') || 'unknown') : 'unknown';
+    ctx.waitUntil(
+      logSubmission(env.FORMSPREE_ENDPOINT, { website: targetUrl.toString(), ip: clientIp })
+        .catch(err => console.warn('Formspree logging failed:', err && err.message))
+    );
   }
 
   const origin = targetUrl.origin;
@@ -398,6 +407,15 @@ async function analyzeTrustSignals(base64Image, env) {
   ];
 
   return { screenshotDataUrl: `data:image/png;base64,${base64Image}`, checks };
+}
+
+async function logSubmission(formspreeEndpoint, { website, ip }) {
+  await fetch(formspreeEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ website, ip, submitted_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(10000),
+  });
 }
 
 async function fetchText(url, ua) {
