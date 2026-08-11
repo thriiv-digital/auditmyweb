@@ -240,6 +240,13 @@
       <img id="screenshotImg" alt="Above-the-fold screenshot" style="width:100%; border-radius:12px; border:1px solid var(--border); display:block;">
     </div>
 
+    <div class="card" id="trustSignalsErrorWrap" style="display:none; border-left:3px solid var(--warn);">
+      <div style="font-size:0.85rem; color:var(--muted);">
+        <strong style="color:var(--text);">Above-the-Fold screenshot unavailable this time:</strong>
+        <span id="trustSignalsErrorText"></span>
+      </div>
+    </div>
+
     <div class="card">
       <div class="category-bars" id="categoryBars"></div>
     </div>
@@ -262,6 +269,7 @@
 <footer>
   Free website audit — no signup.<br>
   <a href="/about.html">About</a> · <a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms</a> · <a href="https://shrinkmytools.com/">More free tools</a>
+  <div style="margin-top:10px; font-size:0.72rem; opacity:0.5;">v1.4.0</div>
 </footer>
 
 <script>
@@ -279,6 +287,8 @@
   const quickWinsList = document.getElementById('quickWinsList');
   const screenshotWrap = document.getElementById('screenshotWrap');
   const screenshotImg = document.getElementById('screenshotImg');
+  const trustSignalsErrorWrap = document.getElementById('trustSignalsErrorWrap');
+  const trustSignalsErrorText = document.getElementById('trustSignalsErrorText');
   const categoryBars = document.getElementById('categoryBars');
   const categoryDetails = document.getElementById('categoryDetails');
   const loadingSteps = document.getElementById('loadingSteps');
@@ -423,6 +433,12 @@
       screenshotWrap.style.display = 'block';
     } else {
       screenshotWrap.style.display = 'none';
+    }
+    if (data.trustSignalsError) {
+      trustSignalsErrorText.textContent = data.trustSignalsError;
+      trustSignalsErrorWrap.style.display = 'block';
+    } else {
+      trustSignalsErrorWrap.style.display = 'none';
     }
 
     // Category bars

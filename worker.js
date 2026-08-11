@@ -69,11 +69,13 @@ async function handleAudit(reqUrl, headers, env) {
   // the original HTTP response headers). Falls back to the raw fetch body if Browser
   // Rendering isn't configured or the call fails, so the tool still works either way.
   let htmlSource = mainResponse;
+  let usedBrowserRendering = false;
   if (env && env.CF_BROWSER_RENDERING_TOKEN && env.CF_ACCOUNT_ID) {
     try {
       const renderedHtml = await fetchRenderedHtml(finalUrl.toString(), env);
       if (renderedHtml) {
         htmlSource = new Response(renderedHtml, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+        usedBrowserRendering = true;
       }
     } catch (err) {
       console.warn('Browser Rendering content fetch failed, falling back to raw fetch:', err && err.message);
@@ -192,22 +194,33 @@ async function handleAudit(reqUrl, headers, env) {
 
   const checks = buildChecks({
     state, targetUrl: finalUrl, wordCount, schemaTypes,
-    xRobotsTag, robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots,
+    // If we parsed Browser-Rendered HTML (a real browser session) instead of the raw
+    // fetch body, the raw fetch's X-Robots-Tag header may reflect a bot-challenge
+    // response rather than the real page — don't treat it as authoritative in that
+    // case; rely on the meta-robots tag actually found in the content we parsed instead.
+    xRobotsTag: usedBrowserRendering ? '' : xRobotsTag,
+    robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots,
     llmsTxt, aiCrawlerAccess,
   });
 
   // Screenshot + vision trust-signal analysis is best-effort: if secrets aren't
-  // configured, or the capture/analysis fails for any reason, we silently skip
-  // this category rather than breaking the rest of the (free, fast) report.
+  // configured at all, we skip silently (this is the "feature not turned on" case).
+  // If it's configured but the call fails, we surface why rather than hiding it,
+  // since a silent failure here is genuinely confusing to debug.
   let screenshotDataUrl = null;
+  let trustSignalsError = null;
   try {
     const trustResult = await captureAndAnalyzeTrustSignals(finalUrl.toString(), env);
-    if (trustResult) {
+    if (trustResult && trustResult.error) {
+      trustSignalsError = trustResult.error;
+      console.warn('Trust-signal analysis failed:', trustResult.error);
+    } else if (trustResult) {
       checks.push(...trustResult.checks);
       screenshotDataUrl = trustResult.screenshotDataUrl;
     }
   } catch (err) {
-    console.warn('Trust-signal analysis skipped:', err && err.message);
+    trustSignalsError = (err && err.message) || 'Unknown error during trust-signal analysis.';
+    console.warn('Trust-signal analysis threw:', trustSignalsError);
   }
 
   const categories = scoreCategories(checks);
@@ -225,6 +238,7 @@ async function handleAudit(reqUrl, headers, env) {
     categories,
     quickWins,
     screenshot: screenshotDataUrl,
+    trustSignalsError,
   }, 200, headers);
 }
 
@@ -301,8 +315,9 @@ async function captureAndAnalyzeTrustSignals(url, env) {
     }
   );
   if (!screenshotRes.ok) {
-    console.warn('Browser Rendering screenshot failed:', screenshotRes.status, await screenshotRes.text().catch(() => ''));
-    return null;
+    const bodyText = await screenshotRes.text().catch(() => '');
+    console.warn('Browser Rendering screenshot failed:', screenshotRes.status, bodyText);
+    return { error: `Screenshot capture failed (HTTP ${screenshotRes.status}). This is often a Browser Rendering rate limit — Free plan allows 1 new browser instance every 20 seconds, and this audit already used one for content rendering.` };
   }
   const imageBuffer = await screenshotRes.arrayBuffer();
   const base64Image = arrayBufferToBase64(imageBuffer);
@@ -328,19 +343,20 @@ async function captureAndAnalyzeTrustSignals(url, env) {
     signal: AbortSignal.timeout(25000),
   });
   if (!visionRes.ok) {
-    console.warn('Vision analysis failed:', visionRes.status, await visionRes.text().catch(() => ''));
-    return null;
+    const bodyText = await visionRes.text().catch(() => '');
+    console.warn('Vision analysis failed:', visionRes.status, bodyText);
+    return { error: `Vision analysis failed (HTTP ${visionRes.status}). Check ANTHROPIC_API_KEY is valid and has billing enabled.` };
   }
   const visionData = await visionRes.json();
   const textBlock = (visionData.content || []).find(b => b.type === 'text');
-  if (!textBlock) return null;
+  if (!textBlock) return { error: 'Vision analysis returned no text content.' };
 
   let parsed;
   try {
     const match = textBlock.text.match(/\{[\s\S]*\}/);
     parsed = JSON.parse(match ? match[0] : textBlock.text);
   } catch {
-    return null;
+    return { error: 'Could not parse the vision model\'s response as JSON.' };
   }
 
   const checks = [
