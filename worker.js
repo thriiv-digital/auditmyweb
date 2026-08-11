@@ -561,7 +561,7 @@ function scoreCategories(checks) {
     byCategory[c.category] = byCategory[c.category] || [];
     byCategory[c.category].push(c);
   }
-  const labels = { onPage: 'On-Page & Technical', structuredData: 'Structured Data & Social', aiReadiness: 'AI Readiness' };
+  const labels = { onPage: 'On-Page & Technical', structuredData: 'Structured Data & Social', aiReadiness: 'AI Readiness', trustSignals: 'Above-the-Fold & Trust Signals' };
   return Object.entries(byCategory).map(([key, items]) => {
     const points = items.reduce((sum, c) => sum + (c.status === 'pass' ? 1 : c.status === 'warn' ? 0.5 : 0), 0);
     const score = Math.round((points / items.length) * 100);
