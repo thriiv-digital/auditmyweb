@@ -68,17 +68,29 @@ async function handleAudit(reqUrl, headers, env) {
   // used for status/redirect/header info (Browser Rendering's REST API doesn't expose
   // the original HTTP response headers). Falls back to the raw fetch body if Browser
   // Rendering isn't configured or the call fails, so the tool still works either way.
+  // A single /snapshot call gets both the rendered HTML and an above-the-fold
+  // screenshot from one browser instance, instead of two separate REST calls
+  // (/content + /screenshot) that each spin up their own instance — the old
+  // approach routinely hit Browser Rendering's "1 new instance / 20s" free-tier
+  // rate limit since both calls fired back-to-back within the same audit.
   let htmlSource = mainResponse;
   let usedBrowserRendering = false;
+  let snapshotScreenshot = null;
+  let trustSignalsError = null;
   if (env && env.CF_BROWSER_RENDERING_TOKEN && env.CF_ACCOUNT_ID) {
     try {
-      const renderedHtml = await fetchRenderedHtml(finalUrl.toString(), env);
-      if (renderedHtml) {
-        htmlSource = new Response(renderedHtml, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-        usedBrowserRendering = true;
+      const snapshot = await fetchSnapshot(finalUrl.toString(), env);
+      if (snapshot && snapshot.error) {
+        trustSignalsError = snapshot.error;
+      } else if (snapshot) {
+        if (snapshot.html) {
+          htmlSource = new Response(snapshot.html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+          usedBrowserRendering = true;
+        }
+        snapshotScreenshot = snapshot.screenshot || null;
       }
     } catch (err) {
-      console.warn('Browser Rendering content fetch failed, falling back to raw fetch:', err && err.message);
+      console.warn('Browser Rendering snapshot failed, falling back to raw fetch:', err && err.message);
     }
   }
 
@@ -218,24 +230,27 @@ async function handleAudit(reqUrl, headers, env) {
     llmsTxt, aiCrawlerAccess,
   });
 
-  // Screenshot + vision trust-signal analysis is best-effort: if secrets aren't
-  // configured at all, we skip silently (this is the "feature not turned on" case).
-  // If it's configured but the call fails, we surface why rather than hiding it,
-  // since a silent failure here is genuinely confusing to debug.
+  // Vision trust-signal analysis reuses the screenshot captured above (no second
+  // Browser Rendering call). If secrets aren't configured at all, or the snapshot
+  // step didn't produce a screenshot, skip silently. If it's configured but the
+  // vision call itself fails, surface why rather than hiding it.
   let screenshotDataUrl = null;
-  let trustSignalsError = null;
-  try {
-    const trustResult = await captureAndAnalyzeTrustSignals(finalUrl.toString(), env);
-    if (trustResult && trustResult.error) {
-      trustSignalsError = trustResult.error;
-      console.warn('Trust-signal analysis failed:', trustResult.error);
-    } else if (trustResult) {
-      checks.push(...trustResult.checks);
-      screenshotDataUrl = trustResult.screenshotDataUrl;
+  if (snapshotScreenshot && env && env.ANTHROPIC_API_KEY) {
+    try {
+      const trustResult = await analyzeTrustSignals(snapshotScreenshot, env);
+      if (trustResult && trustResult.error) {
+        trustSignalsError = trustResult.error;
+        console.warn('Trust-signal analysis failed:', trustResult.error);
+      } else if (trustResult) {
+        checks.push(...trustResult.checks);
+        screenshotDataUrl = trustResult.screenshotDataUrl;
+      }
+    } catch (err) {
+      trustSignalsError = (err && err.message) || 'Unknown error during trust-signal analysis.';
+      console.warn('Trust-signal analysis threw:', trustSignalsError);
     }
-  } catch (err) {
-    trustSignalsError = (err && err.message) || 'Unknown error during trust-signal analysis.';
-    console.warn('Trust-signal analysis threw:', trustSignalsError);
+  } else if (snapshotScreenshot) {
+    screenshotDataUrl = `data:image/png;base64,${snapshotScreenshot}`;
   }
 
   const categories = scoreCategories(checks);
@@ -272,48 +287,9 @@ const TRUST_SIGNAL_PROMPT = `You are analyzing a screenshot of the above-the-fol
 - testimonials_visible: is a customer testimonial or quote visible?
 Each *_detail must be one short factual sentence describing exactly what you see (or don't see) for that signal. Be conservative — only mark something visible if you can clearly see it in the image.`;
 
-async function fetchRenderedHtml(url, env) {
+async function fetchSnapshot(url, env) {
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/content`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.CF_BROWSER_RENDERING_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        gotoOptions: { waitUntil: 'networkidle0', timeout: 15000 },
-      }),
-      signal: AbortSignal.timeout(20000),
-    }
-  );
-  if (!res.ok) {
-    console.warn('Browser Rendering /content failed:', res.status, await res.text().catch(() => ''));
-    return null;
-  }
-  const bodyText = await res.text();
-  // Response shape isn't fully documented — handle both a raw-HTML body and
-  // Cloudflare's standard {success, result} JSON wrapper defensively.
-  const trimmed = bodyText.trim();
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const data = JSON.parse(trimmed);
-      if (typeof data.result === 'string') return data.result;
-      if (data.result && typeof data.result.content === 'string') return data.result.content;
-      // Doesn't look like the wrapper we expected — fall through to treating it as HTML.
-    } catch { /* not actually JSON, treat as raw HTML below */ }
-  }
-  return bodyText;
-}
-
-async function captureAndAnalyzeTrustSignals(url, env) {
-  if (!env || !env.CF_BROWSER_RENDERING_TOKEN || !env.ANTHROPIC_API_KEY || !env.CF_ACCOUNT_ID) {
-    return null; // Feature not configured — skip silently rather than error the whole audit.
-  }
-
-  const screenshotRes = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/screenshot`,
+    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/snapshot`,
     {
       method: 'POST',
       headers: {
@@ -329,14 +305,27 @@ async function captureAndAnalyzeTrustSignals(url, env) {
       signal: AbortSignal.timeout(20000),
     }
   );
-  if (!screenshotRes.ok) {
-    const bodyText = await screenshotRes.text().catch(() => '');
-    console.warn('Browser Rendering screenshot failed:', screenshotRes.status, bodyText);
-    return { error: `Screenshot capture failed (HTTP ${screenshotRes.status}). This is often a Browser Rendering rate limit — Free plan allows 1 new browser instance every 20 seconds, and this audit already used one for content rendering.` };
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    console.warn('Browser Rendering /snapshot failed:', res.status, bodyText);
+    return { error: `Page snapshot failed (HTTP ${res.status}). This may be a temporary Browser Rendering issue — try again shortly.` };
   }
-  const imageBuffer = await screenshotRes.arrayBuffer();
-  const base64Image = arrayBufferToBase64(imageBuffer);
+  const bodyText = await res.text();
+  // Response shape isn't fully documented — handle both a top-level {content, screenshot}
+  // body and Cloudflare's standard {success, result: {content, screenshot}} wrapper.
+  let data;
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    return { error: 'Browser Rendering /snapshot returned an unparsable response.' };
+  }
+  const result = (data && typeof data.result === 'object' && data.result) ? data.result : data;
+  const html = typeof result.content === 'string' ? result.content : null;
+  const screenshot = typeof result.screenshot === 'string' ? result.screenshot : null;
+  return { html, screenshot };
+}
 
+async function analyzeTrustSignals(base64Image, env) {
   const visionRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -393,16 +382,6 @@ async function captureAndAnalyzeTrustSignals(url, env) {
   ];
 
   return { screenshotDataUrl: `data:image/png;base64,${base64Image}`, checks };
-}
-
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 async function fetchText(url, ua) {
