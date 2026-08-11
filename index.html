@@ -232,6 +232,11 @@
       </div>
     </div>
 
+    <div class="card" id="screenshotWrap" style="display:none;">
+      <h3 style="margin:0 0 14px; font-size:0.95rem;">Above the Fold — What a Visitor Sees First</h3>
+      <img id="screenshotImg" alt="Above-the-fold screenshot" style="width:100%; border-radius:12px; border:1px solid var(--border); display:block;">
+    </div>
+
     <div class="card">
       <div class="category-bars" id="categoryBars"></div>
     </div>
@@ -245,6 +250,7 @@
       <li><strong>On-Page &amp; Technical</strong> — title/meta tags, headings, canonical tags, indexability, alt text, HTTPS, mobile viewport, robots.txt, sitemap.xml, URL structure, analytics setup, and more.</li>
       <li><strong>Structured Data &amp; Social</strong> — JSON-LD schema, Open Graph tags, Twitter Card tags.</li>
       <li><strong>AI Readiness <span class="ai-badge">AI</span></strong> — FAQ/Q&amp;A schema, whether AI crawlers (GPTBot, Google-Extended, PerplexityBot, CCBot) are allowed to access the site, llms.txt presence, and E-E-A-T signals. This measures <em>readiness</em> — the on-page signals that correlate with AI citability — not a guarantee of appearing in any specific AI answer, since no public API exposes actual AI Overview citations.</li>
+      <li><strong>Above-the-Fold &amp; Trust Signals</strong> — a screenshot of what a visitor sees without scrolling, analyzed for a visible phone number, reviews/ratings, trust badges or certifications, a clear call-to-action, and testimonials.</li>
     </ul>
     <p>Everything is fetched and analyzed server-side at the moment you run the audit — nothing is stored, and no account is required.</p>
   </div>
@@ -268,6 +274,8 @@
   const resultSummary = document.getElementById('resultSummary');
   const quickWinsWrap = document.getElementById('quickWinsWrap');
   const quickWinsList = document.getElementById('quickWinsList');
+  const screenshotWrap = document.getElementById('screenshotWrap');
+  const screenshotImg = document.getElementById('screenshotImg');
   const categoryBars = document.getElementById('categoryBars');
   const categoryDetails = document.getElementById('categoryDetails');
   const loadingSteps = document.getElementById('loadingSteps');
@@ -278,6 +286,7 @@
     onPage: { icon: '🔍', accent: 'var(--accent)', sub: 'Titles, meta tags, headings, indexability, technical setup' },
     structuredData: { icon: '🏷️', accent: '#8f6dff', sub: 'Schema markup, Open Graph & Twitter Card tags' },
     aiReadiness: { icon: '🤖', accent: '#3ecf8e', sub: 'Signals correlated with AI answer-engine citability' },
+    trustSignals: { icon: '📸', accent: '#e3b95d', sub: 'What a visitor sees above the fold, at a glance' },
   };
 
   // Sub-groups the larger On-Page category into readable clusters instead of one flat list.
@@ -403,6 +412,14 @@
       `).join('');
     } else {
       quickWinsWrap.style.display = 'none';
+    }
+
+    // Above-the-fold screenshot (only present when the trust-signal feature is configured)
+    if (data.screenshot) {
+      screenshotImg.src = data.screenshot;
+      screenshotWrap.style.display = 'block';
+    } else {
+      screenshotWrap.style.display = 'none';
     }
 
     // Category bars
