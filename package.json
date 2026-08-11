@@ -1,0 +1,11 @@
+{
+  "name": "auditmyweb",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.3.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.121.0"
+  }
+}

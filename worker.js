@@ -3,6 +3,8 @@
 // (Server-side fetch is required here since browsers block cross-origin
 // fetch() of arbitrary external pages.)
 
+import puppeteer from '@cloudflare/puppeteer';
+
 const STOPWORDS = new Set(['the','a','an','and','or','of','to','in','on','for','with','is','are','your','you','our','free','online']);
 const AI_BOTS = ['GPTBot', 'Google-Extended', 'PerplexityBot', 'CCBot'];
 
@@ -64,33 +66,33 @@ async function handleAudit(reqUrl, headers, env) {
   // Some sites serve different (often bot-challenge or near-empty) content to a raw
   // server-side fetch than they do to a real browser — and any JS-rendered site needs
   // a real browser to produce meaningful HTML at all. When Browser Rendering is
-  // configured, prefer its rendered output for parsing; the raw fetch above is still
-  // used for status/redirect/header info (Browser Rendering's REST API doesn't expose
-  // the original HTTP response headers). Falls back to the raw fetch body if Browser
-  // Rendering isn't configured or the call fails, so the tool still works either way.
-  // A single /snapshot call gets both the rendered HTML and an above-the-fold
-  // screenshot from one browser instance, instead of two separate REST calls
-  // (/content + /screenshot) that each spin up their own instance — the old
-  // approach routinely hit Browser Rendering's "1 new instance / 20s" free-tier
-  // rate limit since both calls fired back-to-back within the same audit.
+  // configured, launch ONE browser session and reuse it for everything this audit
+  // needs: main-page HTML, screenshot, and (further down) an in-page fetch() fallback
+  // for sitemap.xml/llms.txt if those get bot-challenged too. A single browser launch
+  // per audit — regardless of how many pages/resources it visits — avoids the
+  // "1 new instance / 20s" free-tier rate limit that separate REST calls used to trip.
   let htmlSource = mainResponse;
   let usedBrowserRendering = false;
-  let snapshotScreenshot = null;
+  let capturedScreenshotBase64 = null;
   let trustSignalsError = null;
-  if (env && env.CF_BROWSER_RENDERING_TOKEN && env.CF_ACCOUNT_ID) {
+  let browser = null;
+  let renderedPage = null;
+  if (env && env.MYBROWSER) {
     try {
-      const snapshot = await fetchSnapshot(finalUrl.toString(), env);
-      if (snapshot && snapshot.error) {
-        trustSignalsError = snapshot.error;
-      } else if (snapshot) {
-        if (snapshot.html) {
-          htmlSource = new Response(snapshot.html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-          usedBrowserRendering = true;
-        }
-        snapshotScreenshot = snapshot.screenshot || null;
+      browser = await puppeteer.launch(env.MYBROWSER);
+      renderedPage = await browser.newPage();
+      await renderedPage.setViewport({ width: 1280, height: 800 });
+      await renderedPage.goto(finalUrl.toString(), { waitUntil: 'networkidle0', timeout: 15000 });
+      const html = await renderedPage.content();
+      if (html) {
+        htmlSource = new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+        usedBrowserRendering = true;
       }
+      const screenshotBuffer = await renderedPage.screenshot({ type: 'png', fullPage: false });
+      capturedScreenshotBase64 = uint8ToBase64(screenshotBuffer);
     } catch (err) {
-      console.warn('Browser Rendering snapshot failed, falling back to raw fetch:', err && err.message);
+      console.warn('Browser Rendering session failed:', err && err.message);
+      trustSignalsError = (err && err.message) || 'Browser Rendering session failed.';
     }
   }
 
@@ -210,13 +212,42 @@ async function handleAudit(reqUrl, headers, env) {
   const declaredSitemapUrls = robotsTxt.ok ? extractSitemapUrls(robotsTxt.body) : [];
   const sitemapUrlTried = declaredSitemapUrls[0] || (origin + '/sitemap.xml');
 
-  const [sitemapTxt, llmsTxt] = await Promise.all([
+  let [sitemapTxt, llmsTxt] = await Promise.all([
     fetchText(sitemapUrlTried, UA),
     fetchText(origin + '/llms.txt', UA),
   ]);
 
+  let sitemapValid = !!(sitemapTxt && sitemapTxt.ok && /<urlset|<sitemapindex/i.test(sitemapTxt.body));
+
+  // Some sites bot-challenge raw server-side fetches of sitemap.xml/llms.txt even
+  // though the homepage itself loads fine (seen live on simplydraft.com.au — its
+  // sitemap_index.xml and llms.txt both returned a Cloudflare JS-challenge page to a
+  // plain fetch()). If a Browser Rendering session is already open from the main-page
+  // fetch above, reuse it: an in-page fetch() runs with the same cookies/clearance the
+  // browser picked up loading the homepage, so it succeeds where the raw fetch didn't
+  // — with zero extra browser instances launched.
+  if (renderedPage && (!sitemapValid || !llmsTxt.ok)) {
+    try {
+      if (!sitemapValid) {
+        const rendered = await fetchInPage(renderedPage, sitemapUrlTried);
+        if (rendered.ok && /<urlset|<sitemapindex/i.test(rendered.body)) {
+          sitemapTxt = rendered;
+          sitemapValid = true;
+        }
+      }
+      if (!llmsTxt.ok) {
+        const rendered = await fetchInPage(renderedPage, origin + '/llms.txt');
+        if (rendered.ok) llmsTxt = rendered;
+      }
+    } catch (err) {
+      console.warn('In-page fallback fetch failed:', err && err.message);
+    }
+  }
+  if (browser) {
+    try { await browser.close(); } catch { /* best-effort cleanup */ }
+  }
+
   const aiCrawlerAccess = (robotsTxt && robotsTxt.ok) ? checkAiCrawlerAccess(robotsTxt.body) : null;
-  const sitemapValid = !!(sitemapTxt && sitemapTxt.ok && /<urlset|<sitemapindex/i.test(sitemapTxt.body));
   const sitemapReferencedInRobots = !!(robotsTxt && robotsTxt.ok && /sitemap:/i.test(robotsTxt.body));
 
   const checks = buildChecks({
@@ -231,13 +262,13 @@ async function handleAudit(reqUrl, headers, env) {
   });
 
   // Vision trust-signal analysis reuses the screenshot captured above (no second
-  // Browser Rendering call). If secrets aren't configured at all, or the snapshot
-  // step didn't produce a screenshot, skip silently. If it's configured but the
+  // Browser Rendering call). If secrets aren't configured at all, or the session
+  // above didn't produce a screenshot, skip silently. If it's configured but the
   // vision call itself fails, surface why rather than hiding it.
   let screenshotDataUrl = null;
-  if (snapshotScreenshot && env && env.ANTHROPIC_API_KEY) {
+  if (capturedScreenshotBase64 && env && env.ANTHROPIC_API_KEY) {
     try {
-      const trustResult = await analyzeTrustSignals(snapshotScreenshot, env);
+      const trustResult = await analyzeTrustSignals(capturedScreenshotBase64, env);
       if (trustResult && trustResult.error) {
         trustSignalsError = trustResult.error;
         console.warn('Trust-signal analysis failed:', trustResult.error);
@@ -249,8 +280,8 @@ async function handleAudit(reqUrl, headers, env) {
       trustSignalsError = (err && err.message) || 'Unknown error during trust-signal analysis.';
       console.warn('Trust-signal analysis threw:', trustSignalsError);
     }
-  } else if (snapshotScreenshot) {
-    screenshotDataUrl = `data:image/png;base64,${snapshotScreenshot}`;
+  } else if (capturedScreenshotBase64) {
+    screenshotDataUrl = `data:image/png;base64,${capturedScreenshotBase64}`;
   }
 
   const categories = scoreCategories(checks);
@@ -287,42 +318,27 @@ const TRUST_SIGNAL_PROMPT = `You are analyzing a screenshot of the above-the-fol
 - testimonials_visible: is a customer testimonial or quote visible?
 Each *_detail must be one short factual sentence describing exactly what you see (or don't see) for that signal. Be conservative — only mark something visible if you can clearly see it in the image.`;
 
-async function fetchSnapshot(url, env) {
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/snapshot`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.CF_BROWSER_RENDERING_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url,
-        viewport: { width: 1280, height: 800 },
-        screenshotOptions: { type: 'png', fullPage: false },
-        gotoOptions: { waitUntil: 'networkidle0', timeout: 15000 },
-      }),
-      signal: AbortSignal.timeout(20000),
+// Runs fetch() inside the already-rendered page instead of from the Worker — reuses
+// whatever cookies/JS-challenge clearance the browser picked up loading that page.
+async function fetchInPage(page, url) {
+  return page.evaluate(async (u) => {
+    try {
+      const r = await fetch(u);
+      const body = await r.text();
+      return { ok: r.status === 200, status: r.status, body };
+    } catch {
+      return { ok: false, status: 0, body: '' };
     }
-  );
-  if (!res.ok) {
-    const bodyText = await res.text().catch(() => '');
-    console.warn('Browser Rendering /snapshot failed:', res.status, bodyText);
-    return { error: `Page snapshot failed (HTTP ${res.status}). This may be a temporary Browser Rendering issue — try again shortly.` };
+  }, url);
+}
+
+function uint8ToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
-  const bodyText = await res.text();
-  // Response shape isn't fully documented — handle both a top-level {content, screenshot}
-  // body and Cloudflare's standard {success, result: {content, screenshot}} wrapper.
-  let data;
-  try {
-    data = JSON.parse(bodyText);
-  } catch {
-    return { error: 'Browser Rendering /snapshot returned an unparsable response.' };
-  }
-  const result = (data && typeof data.result === 'object' && data.result) ? data.result : data;
-  const html = typeof result.content === 'string' ? result.content : null;
-  const screenshot = typeof result.screenshot === 'string' ? result.screenshot : null;
-  return { html, screenshot };
+  return btoa(binary);
 }
 
 async function analyzeTrustSignals(base64Image, env) {

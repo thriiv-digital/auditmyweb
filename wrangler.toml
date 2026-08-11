@@ -1,15 +1,17 @@
 name = "auditmyweb"
 main = "worker.js"
 compatibility_date = "2026-08-08"
+compatibility_flags = ["nodejs_compat"]
 
 [assets]
 directory = "./"
 binding = "ASSETS"
 
-[vars]
-CF_ACCOUNT_ID = "1a3773713498302cb0d1189b21c4e175"
+[browser]
+binding = "MYBROWSER"
 
 # Secrets (set via `wrangler secret put <NAME>` or the Cloudflare dashboard —
 # never committed here):
-#   CF_BROWSER_RENDERING_TOKEN — Cloudflare API token scoped to Browser Rendering: Edit
-#   ANTHROPIC_API_KEY          — Anthropic API key for the vision analysis call
+#   ANTHROPIC_API_KEY — Anthropic API key for the vision analysis call
+# (Browser Rendering no longer needs a separate API token/account ID — the
+# [browser] binding above authenticates automatically, same as any other binding.)
