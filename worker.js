@@ -83,6 +83,7 @@ async function handleAudit(reqUrl, headers, env) {
   }
 
   let currentJsonLd = '';
+  let isCurrentScriptJsonLd = false;
   const state = {
     title: '', metaDescription: '', metaRobots: '',
     hasViewport: false, lang: null, hasFavicon: false,
@@ -144,13 +145,24 @@ async function handleAudit(reqUrl, headers, env) {
         if (m) state.gaIds.add(decodeURIComponent(m[1]));
       }
     })
-    .on('script[type="application/ld+json"]', {
+    .on('script', {
+      // Avoid relying on the CSS :not() pseudo-class here — HTMLRewriter (lol-html)
+      // doesn't reliably support it, and a silent selector failure would erase JSON-LD
+      // script content via the generic-script-stripping branch instead of capturing it.
+      // Checking the type attribute in JS instead is guaranteed to work regardless.
+      element(el) {
+        isCurrentScriptJsonLd = (el.getAttribute('type') || '').toLowerCase() === 'application/ld+json';
+      },
       text(t) {
-        currentJsonLd += t.text;
-        if (t.lastInTextNode) { state.jsonLdBlocks.push(currentJsonLd); currentJsonLd = ''; }
+        if (isCurrentScriptJsonLd) {
+          currentJsonLd += t.text;
+          if (t.lastInTextNode) { state.jsonLdBlocks.push(currentJsonLd); currentJsonLd = ''; }
+        } else {
+          state.scriptText += t.text;
+          t.remove();
+        }
       }
     })
-    .on('script:not([type="application/ld+json"])', { text(t) { state.scriptText += t.text; t.remove(); } })
     .on('style', { text(t) { t.remove(); } })
     .on('body', { text(t) { state.bodyText += t.text; } });
 
@@ -178,15 +190,18 @@ async function handleAudit(reqUrl, headers, env) {
 
   const wordCount = state.bodyText.trim().split(/\s+/).filter(Boolean).length;
 
-  const [robotsResult, sitemapResult, llmsResult] = await Promise.allSettled([
-    fetchText(origin + '/robots.txt', UA),
-    fetchText(origin + '/sitemap.xml', UA),
+  // robots.txt is fetched first (not in parallel) because many sites — especially
+  // WordPress with Yoast/RankMath — don't use the plain /sitemap.xml path at all
+  // (this one uses /sitemap_index.xml). robots.txt's own "Sitemap:" directive is the
+  // authoritative source for the real URL, so we need it before deciding what to fetch.
+  const robotsTxt = await fetchText(origin + '/robots.txt', UA);
+  const declaredSitemapUrls = robotsTxt.ok ? extractSitemapUrls(robotsTxt.body) : [];
+  const sitemapUrlTried = declaredSitemapUrls[0] || (origin + '/sitemap.xml');
+
+  const [sitemapTxt, llmsTxt] = await Promise.all([
+    fetchText(sitemapUrlTried, UA),
     fetchText(origin + '/llms.txt', UA),
   ]);
-
-  const robotsTxt = robotsResult.status === 'fulfilled' ? robotsResult.value : null;
-  const sitemapTxt = sitemapResult.status === 'fulfilled' ? sitemapResult.value : null;
-  const llmsTxt = llmsResult.status === 'fulfilled' ? llmsResult.value : null;
 
   const aiCrawlerAccess = (robotsTxt && robotsTxt.ok) ? checkAiCrawlerAccess(robotsTxt.body) : null;
   const sitemapValid = !!(sitemapTxt && sitemapTxt.ok && /<urlset|<sitemapindex/i.test(sitemapTxt.body));
@@ -199,7 +214,7 @@ async function handleAudit(reqUrl, headers, env) {
     // response rather than the real page — don't treat it as authoritative in that
     // case; rely on the meta-robots tag actually found in the content we parsed instead.
     xRobotsTag: usedBrowserRendering ? '' : xRobotsTag,
-    robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots,
+    robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots, sitemapUrlTried,
     llmsTxt, aiCrawlerAccess,
   });
 
@@ -400,7 +415,7 @@ async function fetchText(url, ua) {
   }
 }
 
-function checkAiCrawlerAccess(robotsTxt) {
+function parseRobotsGroups(robotsTxt) {
   const lines = robotsTxt.split('\n').map(l => l.trim());
   const groups = {};
   let currentAgents = [];
@@ -417,6 +432,20 @@ function checkAiCrawlerAccess(robotsTxt) {
       currentAgents = [];
     }
   }
+  return groups;
+}
+
+function extractSitemapUrls(robotsTxt) {
+  const urls = [];
+  robotsTxt.split('\n').forEach(line => {
+    const m = line.match(/^\s*sitemap:\s*(\S+)/i);
+    if (m) urls.push(m[1].trim());
+  });
+  return urls;
+}
+
+function checkAiCrawlerAccess(robotsTxt) {
+  const groups = parseRobotsGroups(robotsTxt);
   const wildcardBlocksAll = (groups['*'] || []).includes('/');
   const result = {};
   for (const bot of AI_BOTS) {
@@ -427,7 +456,7 @@ function checkAiCrawlerAccess(robotsTxt) {
 }
 
 function buildChecks(ctx) {
-  const { state, targetUrl, wordCount, schemaTypes, xRobotsTag, robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots, llmsTxt, aiCrawlerAccess } = ctx;
+  const { state, targetUrl, wordCount, schemaTypes, xRobotsTag, robotsTxt, sitemapTxt, sitemapValid, sitemapReferencedInRobots, sitemapUrlTried, llmsTxt, aiCrawlerAccess } = ctx;
   const checks = [];
   const add = (category, id, label, status, detail, impact = 1) => checks.push({ category, id, label, status, detail, impact });
 
@@ -533,16 +562,24 @@ function buildChecks(ctx) {
 
   if (!robotsTxt || !robotsTxt.ok) {
     add('onPage', 'robots-txt', 'robots.txt', 'warn', 'No robots.txt found at the site root.');
-  } else if (/disallow:\s*\/\s*$/im.test(robotsTxt.body.split('\n').filter(l => !/^\s*#/.test(l)).join('\n'))) {
-    add('onPage', 'robots-txt', 'robots.txt', 'warn', 'robots.txt contains a blanket "Disallow: /" — double-check this isn\'t accidentally blocking the whole site.');
   } else {
-    add('onPage', 'robots-txt', 'robots.txt', 'pass', 'robots.txt found and readable.');
+    // Check specifically whether the *wildcard* (User-agent: *) group disallows
+    // everything — a full disallow scoped to one specific named bot (very common
+    // for blocking individual AI crawlers) is not a site-wide block and shouldn't
+    // be flagged as one.
+    const robotsGroups = parseRobotsGroups(robotsTxt.body);
+    const wildcardDisallowsAll = (robotsGroups['*'] || []).includes('/');
+    if (wildcardDisallowsAll) {
+      add('onPage', 'robots-txt', 'robots.txt', 'warn', 'robots.txt has "User-agent: *" with "Disallow: /" — this blocks all crawlers, including search engines, from the entire site.');
+    } else {
+      add('onPage', 'robots-txt', 'robots.txt', 'pass', 'robots.txt found and readable.');
+    }
   }
 
   if (!sitemapTxt || !sitemapValid) {
-    add('onPage', 'sitemap', 'sitemap.xml', 'warn', 'No valid sitemap.xml found at /sitemap.xml.');
+    add('onPage', 'sitemap', 'Sitemap', 'warn', `No valid sitemap found at ${sitemapUrlTried}.`);
   } else {
-    add('onPage', 'sitemap', 'sitemap.xml', 'pass', sitemapReferencedInRobots ? 'Valid sitemap.xml found and referenced in robots.txt.' : 'Valid sitemap.xml found (consider referencing it in robots.txt).');
+    add('onPage', 'sitemap', 'Sitemap', 'pass', sitemapReferencedInRobots ? `Valid sitemap found at ${sitemapUrlTried} (referenced in robots.txt).` : `Valid sitemap found at ${sitemapUrlTried}.`);
   }
 
   if (state.gaIds.size === 0) {
@@ -644,4 +681,4 @@ function json(obj, status, headers) {
 }
 
 // Named exports for unit testing in plain Node (Cloudflare only uses the default export above).
-export { checkAiCrawlerAccess, buildChecks, significantWords, overlapRatio, scoreCategories };
+export { checkAiCrawlerAccess, buildChecks, significantWords, overlapRatio, scoreCategories, parseRobotsGroups, extractSitemapUrls };
