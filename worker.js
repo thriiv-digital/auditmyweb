@@ -42,9 +42,23 @@ async function handleAudit(reqUrl, headers, env, ctx, request) {
     return json({ error: 'Please enter a valid URL, e.g. https://example.com' }, 400, headers);
   }
 
+  const clientIp = request ? (request.headers.get('cf-connecting-ip') || 'unknown') : 'unknown';
+
+  // Cap abuse at one audit per IP per 10 minutes. A plain KV entry with a TTL, not
+  // Cloudflare's native Rate Limiting binding, because that binding's window is
+  // capped at 60 seconds — too short for what we need here. Checked before any of
+  // the expensive work below (fetches, a Browser Rendering session) runs.
+  if (env && env.AUDIT_RATE_LIMIT && clientIp !== 'unknown') {
+    const rateLimitKey = `ip:${clientIp}`;
+    const recent = await env.AUDIT_RATE_LIMIT.get(rateLimitKey);
+    if (recent) {
+      return json({ error: "You've already run an audit recently — please wait a few minutes and try again." }, 429, headers);
+    }
+    if (ctx) ctx.waitUntil(env.AUDIT_RATE_LIMIT.put(rateLimitKey, '1', { expirationTtl: 600 }));
+  }
+
   // Log every submitted URL (best-effort, never blocks or fails the audit itself).
   if (ctx && env && env.FORMSPREE_ENDPOINT) {
-    const clientIp = request ? (request.headers.get('cf-connecting-ip') || 'unknown') : 'unknown';
     ctx.waitUntil(
       logSubmission(env.FORMSPREE_ENDPOINT, { website: targetUrl.toString(), ip: clientIp })
         .catch(err => console.warn('Formspree logging failed:', err && err.message))
@@ -106,6 +120,7 @@ async function handleAudit(reqUrl, headers, env, ctx, request) {
   }
 
   let currentJsonLd = '';
+  let currentH1 = '';
   let isCurrentScriptJsonLd = false;
   const state = {
     title: '', metaDescription: '', metaRobots: '',
@@ -137,7 +152,16 @@ async function handleAudit(reqUrl, headers, env, ctx, request) {
     })
     .on('link[rel="canonical"]', { element(el) { state.canonicalHrefs.push(el.getAttribute('href')); } })
     .on('link[rel="icon"], link[rel="shortcut icon"]', { element() { state.hasFavicon = true; } })
-    .on('h1', { text(t) { state.headings.h1.push(t.text); } })
+    .on('h1', {
+      // Don't rely on text() firing once per element — lol-html delivers text in
+      // chunks, so a single <h1> with enough text (or any nested inline markup)
+      // fires text() multiple times. Accumulate and only push once, on the end tag.
+      element(el) {
+        currentH1 = '';
+        el.onEndTag(() => { state.headings.h1.push(currentH1); });
+      },
+      text(t) { currentH1 += t.text; }
+    })
     .on('h2', { element() { state.headings.h2++; } })
     .on('h3', { element() { state.headings.h3++; } })
     .on('h4', { element() { state.headings.h4++; } })
